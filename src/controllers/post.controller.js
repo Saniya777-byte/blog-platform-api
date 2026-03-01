@@ -166,3 +166,44 @@ exports.deletePost = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+
+
+//   PUT /api/posts/:id
+//  Update post by ID
+
+
+exports.updatePost = async (req, res) => {
+  try {
+    const { title, desc, tags } = req.body;
+
+    let updateData = {};
+
+    if (title) updateData.title = title;
+    if (desc) updateData.desc = desc;
+
+    if (tags) {
+      const tagArray = Array.isArray(tags) ? tags : tags.split(",");
+      updateData.tags = tagArray;
+    }
+
+    const updatedPost = await Post.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    ).populate("tags");
+
+    if (!updatedPost) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    res.status(200).json({
+      message: "Post updated successfully",
+      data: updatedPost
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
