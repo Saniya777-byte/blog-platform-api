@@ -34,3 +34,36 @@ exports.createPost = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+//   GET /api/posts
+//   Get all posts with pagination and sorting
+ 
+exports.getAllPosts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const sortBy = req.query.sortBy || "createdAt";
+    const order = req.query.order === "asc" ? 1 : -1;
+
+    const skip = (page - 1) * limit;
+
+    const posts = await Post.find()
+      .populate('tags')
+      .sort({ [sortBy]: order })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Post.countDocuments();
+
+    res.status(200).json({
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      data: posts
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
