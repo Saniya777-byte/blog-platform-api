@@ -36,8 +36,8 @@ exports.createPost = async (req, res) => {
 };
 
 
-//   GET /api/posts
-//   Get all posts with pagination and sorting
+// GET /api/posts
+// get all posts with pagination and sorting
  
 exports.getAllPosts = async (req, res) => {
   try {
@@ -60,6 +60,37 @@ exports.getAllPosts = async (req, res) => {
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      data: posts
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+
+// GET /api/posts/search
+// Search posts by keyword in title and description
+ 
+
+exports.searchPosts = async (req, res) => {
+  try {
+    const { keyword } = req.query;
+
+    if (!keyword) {
+      return res.status(400).json({ message: "Keyword is required" });
+    }
+
+    const posts = await Post.find({
+      $or: [
+        { title: { $regex: keyword, $options: "i" } },
+        { desc: { $regex: keyword, $options: "i" } }
+      ]
+    }).populate("tags");
+
+    res.status(200).json({
+      total: posts.length,
       data: posts
     });
 
