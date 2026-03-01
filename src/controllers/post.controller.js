@@ -148,3 +148,21 @@ exports.getPostById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+// DELETE /api/posts/:id
+//  Delete post by ID
+
+exports.deletePost = async (req, res) => {
+  try {
+    const post = await Post.findByIdAndDelete(req.params.id);
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    res.status(200).json({ message: "Post deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
