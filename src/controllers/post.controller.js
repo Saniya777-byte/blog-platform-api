@@ -45,16 +45,25 @@ exports.getAllPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 5;
     const sortBy = req.query.sortBy || "createdAt";
     const order = req.query.order === "asc" ? 1 : -1;
+    const tags = req.query.tags;
 
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find()
-      .populate('tags')
+    let filter = {};
+
+    //Filter by tags
+    if (tags) {
+      const tagArray = tags.split(",");
+      filter.tags = { $in: tagArray };
+    }
+
+    const posts = await Post.find(filter)
+      .populate("tags")
       .sort({ [sortBy]: order })
       .skip(skip)
       .limit(limit);
 
-    const total = await Post.countDocuments();
+    const total = await Post.countDocuments(filter);
 
     res.status(200).json({
       total,
@@ -67,7 +76,6 @@ exports.getAllPosts = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 
 // GET /api/posts/search
