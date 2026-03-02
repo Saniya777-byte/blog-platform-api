@@ -1,22 +1,13 @@
-/* ════════════════════════════════════════════════════════════════════════════
-   BlogVault — Blog Platform Client  |  script.js
-   ════════════════════════════════════════════════════════════════════════════ */
+const API = 'https://blog-platform-api-te6g.onrender.com/api';
 
-const API = 'http://localhost:5000/api';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────────────
 let currentPage = 1;
 let totalPages = 1;
 let searchTimeout = null;
 let currentSearch = '';
 let allTags = [];
-let currentTagFilter = ''; // tracks active tag filter independently of select UI
+let currentTagFilter = '';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEBUG HELPERS - Call these from console if tags aren't working
-// ─────────────────────────────────────────────────────────────────────────────
 function debugTags() {
     console.group('=== TAG DEBUG ===');
     console.log('allTags global variable:', allTags);
@@ -42,9 +33,7 @@ window.debugTags = debugTags;
 window.debugForm = debugForm;
 console.log('Debug helpers added: call debugTags() and debugForm() from console');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('=== DOMContentLoaded ===');
     console.log('Initializing application...');
@@ -267,9 +256,8 @@ function makePageBtn(label, disabled, onClick) {
     return btn;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SEARCH
-// ─────────────────────────────────────────────────────────────────────────────
+
+
 function onSearchInput(value) {
     document.getElementById('clearSearch').style.display = value ? 'flex' : 'none';
     clearTimeout(searchTimeout);
@@ -284,16 +272,14 @@ function clearSearch() {
     loadPosts(1);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // TAG FILTER FROM CARD
-// ─────────────────────────────────────────────────────────────────────────────
 function filterByTagName(event, tagName) {
     event.stopPropagation();
 
     // Store the active tag filter in state
     currentTagFilter = tagName;
 
-    // Also try to sync the select dropdown (find matching option case-insensitively)
     const filterSelect = document.getElementById('filterTag');
     const matchingOption = Array.from(filterSelect.options).find(
         opt => opt.value.toLowerCase() === tagName.toLowerCase()
@@ -331,9 +317,7 @@ function resetFilters() {
     clearSearch();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CREATE POST
-// ─────────────────────────────────────────────────────────────────────────────
+//create post
 async function submitPost(event) {
     event.preventDefault();
 
@@ -427,9 +411,7 @@ function resetForm() {
     document.querySelectorAll('.tag-checkbox-input').forEach(cb => cb.checked = false);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IMAGE PREVIEW
-// ─────────────────────────────────────────────────────────────────────────────
+//image preview
 function previewImage(input) {
     const file = input.files[0];
     if (!file) return;
@@ -453,9 +435,7 @@ function clearImage() {
     document.getElementById('clearImageBtn').style.display = 'none';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE POST
-// ─────────────────────────────────────────────────────────────────────────────
+//delete post
 async function confirmDelete(id) {
     if (!confirm('Are you sure you want to delete this post?')) return;
     await deletePost(id);
@@ -477,10 +457,7 @@ async function deletePost(id) {
         showToast('Network error', 'error');
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST DETAIL MODAL
-// ─────────────────────────────────────────────────────────────────────────────
+//delete post model
 function openPostModal(post) {
     const content = document.getElementById('modalContent');
     const tagsHtml = (post.tags && post.tags.length)
@@ -526,11 +503,7 @@ function closeModalBtn() {
     document.body.style.overflow = '';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TAGS
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Fetch all tags and populate filter dropdown + create form checkboxes */
+//tags
 async function loadTags() {
     try {
         console.log('=== LOAD TAGS ===');
@@ -727,16 +700,12 @@ function setColor(hex) {
     updateTagPreview();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SKELETON LOADER
-// ─────────────────────────────────────────────────────────────────────────────
+
 function showSkeleton(visible) {
     document.getElementById('skeleton').style.display = visible ? 'grid' : 'none';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TOAST NOTIFICATIONS
-// ─────────────────────────────────────────────────────────────────────────────
+//toast notification
 let toastTimer = null;
 
 function showToast(message, type = 'info') {
@@ -750,11 +719,6 @@ function showToast(message, type = 'info') {
     }, 3500);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Escape HTML to prevent XSS */
 function escHtml(str) {
     if (!str) return '';
     return String(str)
