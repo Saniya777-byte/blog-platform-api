@@ -3,6 +3,18 @@ const Tag = require('../models/tag.model');
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../config/s3");
 
+const { GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+
+
+async function generateSignedUrl(key) {
+  const command = new GetObjectCommand({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: key
+  });
+
+  return await getSignedUrl(s3, command, { expiresIn: 3600 });
+}
 exports.createPost = async (req, res) => {
   try {
     console.log("BODY:", req.body);
@@ -17,9 +29,15 @@ exports.createPost = async (req, res) => {
     }
 
     let tagIds = [];
+
     if (tags) {
       const tagArray = Array.isArray(tags) ? tags : tags.split(",");
-      const existingTags = await Tag.find({ _id: { $in: tagArray } });
+
+      // Find tags by NAME instead of _id
+      const existingTags = await Tag.find({
+        name: { $in: tagArray }
+      });
+
       tagIds = existingTags.map(tag => tag._id);
     }
 
@@ -59,9 +77,12 @@ exports.createPost = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
 // GET /api/posts
 // get all posts with pagination and sorting
  
+
 exports.getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -74,7 +95,6 @@ exports.getAllPosts = async (req, res) => {
 
     let filter = {};
 
-    //Filter by tags
     if (tags) {
       const tagArray = tags.split(",");
       filter.tags = { $in: tagArray };
@@ -88,6 +108,14 @@ exports.getAllPosts = async (req, res) => {
 
     const total = await Post.countDocuments(filter);
 
+    // Generate signed URLs for images
+    for (let post of posts) {
+      if (post.image) {
+        const key = post.image.split(".amazonaws.com/")[1];
+        post.image = await generateSignedUrl(key);
+      }
+    }
+
     res.status(200).json({
       total,
       page,
@@ -99,7 +127,6 @@ exports.getAllPosts = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 // GET /api/posts/search
 // Search posts by keyword in title and description

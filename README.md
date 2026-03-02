@@ -43,21 +43,34 @@ This project supports full CRUD operations for posts, tag management, search, fi
 
 ## Project Structure
 
-
 blog-platform-api/
 │
 ├── src/
 │ ├── config/
+│ │ ├── db.js
+│ │ └── s3.js
+│ │
 │ ├── controllers/
+│ │ ├── post.controller.js
+│ │ └── tag.controller.js
+│ │
 │ ├── middleware/
+│ │ └── upload.middleware.js
+│ │
 │ ├── models/
+│ │ ├── post.model.js
+│ │ └── tag.model.js
+│ │
 │ ├── routes/
+│ │ ├── post.routes.js
+│ │ └── tag.routes.js
+│ │
 │ └── app.js
 │
 ├── server.js
 ├── .env
+├── package.json
 └── README.md
-
 
 ---
 

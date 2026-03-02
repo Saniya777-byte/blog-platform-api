@@ -30,3 +30,18 @@ exports.createTag = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+exports.getAllTags = async (req, res) => {
+  try {
+    const tags = await Tag.find();
+
+    res.status(200).json({
+      total: tags.length,
+      data: tags
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
