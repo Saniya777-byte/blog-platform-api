@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Blog Platform</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>Blog Platform</h1>
+
+    <h2>Search Posts</h2>
+    <input type="text" id="searchInput" placeholder="Search by title or description">
+    <button onclick="searchPosts()">Search</button>
+    <button onclick="loadPosts()">Reset</button>
+    <hr>
+
+    <h2>Create Post</h2>
+    <form id="postForm">
+        <input type="text" id="title" placeholder="Title" required />
+        <input type="text" id="desc" placeholder="Description" required />
+        <select id="tagSelect"></select>
+        <input type="file" id="image" />
+        <button type="submit">Create Post</button>
+    </form>
+
+    <hr>
+
+    <h2>All Posts</h2>
+    <div id="posts"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
