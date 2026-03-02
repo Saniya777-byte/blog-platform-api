@@ -4,17 +4,7 @@ const { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aw
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const s3 = require('../config/s3');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Generates a pre-signed S3 URL for a given object key.
- * The URL expires in 1 hour (3600 seconds).
- *
- * @param {string} key - S3 object key (filename)
- * @returns {Promise<string>} Pre-signed URL
- */
 async function generateSignedUrl(key) {
   const command = new GetObjectCommand({
     Bucket: process.env.AWS_BUCKET_NAME,
@@ -23,24 +13,14 @@ async function generateSignedUrl(key) {
   return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
 
-/**
- * Extracts the S3 object key from a full S3 URL.
- *
- * @param {string} url - Full S3 URL
- * @returns {string|null} S3 key or null if extraction fails
- */
+
 function extractS3Key(url) {
   if (!url) return null;
   const parts = url.split('.amazonaws.com/');
   return parts.length > 1 ? parts[1] : null;
 }
 
-/**
- * Uploads a file buffer to AWS S3 and returns the public URL.
- *
- * @param {Express.Multer.File} file - Multer file object
- * @returns {Promise<string>} Public S3 URL of uploaded file
- */
+
 async function uploadToS3(file) {
   const sanitizedName = file.originalname.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9.\-_]/g, '');
   const fileName = `${Date.now()}-${sanitizedName}`;
@@ -71,12 +51,6 @@ async function deleteFromS3(key) {
   await s3.send(command);
 }
 
-/**
- * Enriches posts with signed image URLs instead of raw S3 links.
- *
- * @param {Array} posts - Array of Mongoose post documents
- * @returns {Promise<Array>} Posts with signed image URLs
- */
 async function enrichWithSignedUrls(posts) {
   return Promise.all(
     posts.map(async (post) => {
@@ -96,27 +70,7 @@ async function enrichWithSignedUrls(posts) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST CONTROLLERS
-// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * @route   POST /api/posts
- * @desc    Create a new blog post with optional image upload to AWS S3.
- *          Tags can be provided as comma-separated tag names.
- * @access  Public
- *
- * @body    {string} title    - Post title (required)
- * @body    {string} desc     - Post description/content (required)
- * @body    {string} [author] - Author name (default: Anonymous)
- * @body    {string} [tags]   - Comma-separated tag names (e.g. "nodejs,api")
- * @body    {string} [status] - Publication status: "draft" | "published"
- * @file    {File}   [image]  - Image file (max 5MB, jpg/png/webp/gif)
- *
- * @returns {201} { message, data: Post }
- * @returns {400} If title or desc is missing
- * @returns {500} On server/S3 error
- */
 exports.createPost = async (req, res, next) => {
   try {
     console.log('=== CREATE POST ===');
@@ -196,23 +150,7 @@ exports.createPost = async (req, res, next) => {
 };
 
 
-/**
- * @route   GET /api/posts
- * @desc    Get all posts with optional filtering, sorting, and pagination.
- *          Also supports filtering by tag names via query param.
- * @access  Public
- *
- * @query   {number}  [page=1]          - Page number (1-indexed)
- * @query   {number}  [limit=6]         - Posts per page
- * @query   {string}  [sortBy=createdAt] - Field to sort by (createdAt, title, updatedAt)
- * @query   {string}  [order=desc]      - Sort order: "asc" | "desc"
- * @query   {string}  [tags]            - Comma-separated tag names to filter by
- * @query   {string}  [status]          - Filter by status: "draft" | "published"
- * @query   {string}  [author]          - Filter by author name (case-insensitive)
- *
- * @returns {200} { success, total, page, totalPages, data: Post[] }
- * @returns {500} On server error
- */
+
 exports.getAllPosts = async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -288,20 +226,7 @@ exports.getAllPosts = async (req, res, next) => {
 };
 
 
-/**
- * @route   GET /api/posts/search
- * @desc    Search posts by keyword across title and description fields.
- *          Also supports pagination on search results.
- * @access  Public
- *
- * @query   {string}  keyword   - Search keyword (required)
- * @query   {number}  [page=1]  - Page number
- * @query   {number}  [limit=6] - Posts per page
- *
- * @returns {200} { success, total, page, totalPages, data: Post[] }
- * @returns {400} If keyword is missing
- * @returns {500} On server error
- */
+
 exports.searchPosts = async (req, res, next) => {
   try {
     const { keyword } = req.query;
@@ -363,22 +288,7 @@ exports.searchPosts = async (req, res, next) => {
 };
 
 
-/**
- * @route   GET /api/posts/filter-by-tag/:tagName
- * @desc    Filter all posts that have a specific tag (by tag name).
- *          Supports pagination and sorting.
- * @access  Public
- *
- * @param   {string}  tagName   - Tag name to filter by (URL param)
- * @query   {number}  [page=1]  - Page number
- * @query   {number}  [limit=6] - Posts per page
- * @query   {string}  [sortBy=createdAt] - Sort field
- * @query   {string}  [order=desc] - Sort order
- *
- * @returns {200} { success, tag, total, page, totalPages, data: Post[] }
- * @returns {404} If tag not found
- * @returns {500} On server error
- */
+
 exports.filterByTag = async (req, res, next) => {
   try {
     const { tagName } = req.params;
@@ -426,19 +336,7 @@ exports.filterByTag = async (req, res, next) => {
 };
 
 
-/**
- * @route   GET /api/posts/:id
- * @desc    Get a single post by its MongoDB ObjectId.
- *          Returns populated tags and a signed S3 image URL.
- * @access  Public
- *
- * @param   {string} id - MongoDB ObjectId of the post
- *
- * @returns {200} { success, data: Post }
- * @returns {404} If post not found
- * @returns {400} If ID format is invalid
- * @returns {500} On server error
- */
+
 exports.getPostById = async (req, res, next) => {
   try {
     const post = await Post.findById(req.params.id).populate('tags', 'name color');
@@ -550,17 +448,7 @@ exports.updatePost = async (req, res, next) => {
 };
 
 
-/**
- * @route   DELETE /api/posts/:id
- * @desc    Delete a post by ID. Also removes the associated image from S3.
- * @access  Public
- *
- * @param   {string} id - MongoDB ObjectId of the post
- *
- * @returns {200} { success, message }
- * @returns {404} If post not found
- * @returns {500} On server error
- */
+
 exports.deletePost = async (req, res, next) => {
   try {
     const post = await Post.findByIdAndDelete(req.params.id);
@@ -586,4 +474,5 @@ exports.deletePost = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+
 };
