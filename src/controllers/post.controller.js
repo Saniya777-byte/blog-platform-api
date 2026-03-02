@@ -1,236 +1,589 @@
 const Post = require('../models/post.model');
 const Tag = require('../models/tag.model');
-const { PutObjectCommand } = require("@aws-sdk/client-s3");
-const s3 = require("../config/s3");
+const { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const s3 = require('../config/s3');
 
-const { GetObjectCommand } = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
-
+/**
+ * Generates a pre-signed S3 URL for a given object key.
+ * The URL expires in 1 hour (3600 seconds).
+ *
+ * @param {string} key - S3 object key (filename)
+ * @returns {Promise<string>} Pre-signed URL
+ */
 async function generateSignedUrl(key) {
   const command = new GetObjectCommand({
     Bucket: process.env.AWS_BUCKET_NAME,
     Key: key
   });
-
-  return await getSignedUrl(s3, command, { expiresIn: 3600 });
+  return getSignedUrl(s3, command, { expiresIn: 3600 });
 }
-exports.createPost = async (req, res) => {
+
+/**
+ * Extracts the S3 object key from a full S3 URL.
+ *
+ * @param {string} url - Full S3 URL
+ * @returns {string|null} S3 key or null if extraction fails
+ */
+function extractS3Key(url) {
+  if (!url) return null;
+  const parts = url.split('.amazonaws.com/');
+  return parts.length > 1 ? parts[1] : null;
+}
+
+/**
+ * Uploads a file buffer to AWS S3 and returns the public URL.
+ *
+ * @param {Express.Multer.File} file - Multer file object
+ * @returns {Promise<string>} Public S3 URL of uploaded file
+ */
+async function uploadToS3(file) {
+  const sanitizedName = file.originalname.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9.\-_]/g, '');
+  const fileName = `${Date.now()}-${sanitizedName}`;
+
+  const command = new PutObjectCommand({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: fileName,
+    Body: file.buffer,
+    ContentType: file.mimetype
+  });
+
+  await s3.send(command);
+
+  return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+}
+
+/**
+ * Deletes an object from S3 by its key.
+ *
+ * @param {string} key - S3 object key
+ */
+async function deleteFromS3(key) {
+  if (!key) return;
+  const command = new DeleteObjectCommand({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: key
+  });
+  await s3.send(command);
+}
+
+/**
+ * Enriches posts with signed image URLs instead of raw S3 links.
+ *
+ * @param {Array} posts - Array of Mongoose post documents
+ * @returns {Promise<Array>} Posts with signed image URLs
+ */
+async function enrichWithSignedUrls(posts) {
+  return Promise.all(
+    posts.map(async (post) => {
+      const postObj = post.toObject ? post.toObject() : { ...post };
+      if (postObj.image) {
+        const key = extractS3Key(postObj.image);
+        if (key) {
+          try {
+            postObj.image = await generateSignedUrl(key);
+          } catch {
+            // If signed URL fails, keep original URL
+          }
+        }
+      }
+      return postObj;
+    })
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST CONTROLLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @route   POST /api/posts
+ * @desc    Create a new blog post with optional image upload to AWS S3.
+ *          Tags can be provided as comma-separated tag names.
+ * @access  Public
+ *
+ * @body    {string} title    - Post title (required)
+ * @body    {string} desc     - Post description/content (required)
+ * @body    {string} [author] - Author name (default: Anonymous)
+ * @body    {string} [tags]   - Comma-separated tag names (e.g. "nodejs,api")
+ * @body    {string} [status] - Publication status: "draft" | "published"
+ * @file    {File}   [image]  - Image file (max 5MB, jpg/png/webp/gif)
+ *
+ * @returns {201} { message, data: Post }
+ * @returns {400} If title or desc is missing
+ * @returns {500} On server/S3 error
+ */
+exports.createPost = async (req, res, next) => {
   try {
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
+    console.log('=== CREATE POST ===');
+    console.log('req.body:', req.body);
 
-    const title = req.body?.title;
-    const desc = req.body?.desc;
-    const tags = req.body?.tags;
+    const { title, desc, author, status } = req.body;
+    let tags = req.body.tags || '';
 
+    console.log('Raw tags from body:', JSON.stringify(tags));
+
+    // Validate required fields
     if (!title || !desc) {
-      return res.status(400).json({ message: "Title and description are required" });
+      return res.status(400).json({
+        success: false,
+        message: 'Title and description are required'
+      });
     }
 
+    // Resolve tag IDs from tag names
     let tagIds = [];
 
-    if (tags) {
-      const tagArray = Array.isArray(tags) ? tags : tags.split(",");
+    // Ensure tags is a string and trim it
+    const tagsString = String(tags || '').trim();
+    console.log('Trimmed tags string:', JSON.stringify(tagsString));
 
-      // Find tags by NAME instead of _id
-      const existingTags = await Tag.find({
-        name: { $in: tagArray }
-      });
+    if (tagsString !== '' && tagsString !== 'undefined') {
+      const tagArray = tagsString
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t !== '');
 
-      tagIds = existingTags.map(tag => tag._id);
+      console.log('Tag array to search:', tagArray);
+
+      if (tagArray.length > 0) {
+        // Case-insensitive lookup so "NodeJS", "nodejs" and "NODEJS" all match
+        const caseInsensitivePatterns = tagArray.map(n => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+        const existingTags = await Tag.find({ name: { $in: caseInsensitivePatterns } });
+        console.log('Found tags in DB:', existingTags.length, existingTags.map(t => t.name));
+
+        tagIds = existingTags.map(tag => tag._id);
+        console.log('Mapped to tag IDs:', tagIds);
+      }
+    } else {
+      console.log('No tags provided - empty or undefined');
     }
 
+    // Upload image to S3 if provided
     let imageUrl = null;
-
     if (req.file) {
-      const fileName = Date.now() + "-" + req.file.originalname;
-
-      const command = new PutObjectCommand({
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: fileName,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype,
-      });
-
-      await s3.send(command);
-
-      imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+      imageUrl = await uploadToS3(req.file);
     }
 
     const post = await Post.create({
-      title,
-      desc,
+      title: title.trim(),
+      desc: desc.trim(),
       image: imageUrl,
-      tags: tagIds
+      tags: tagIds,
+      author: author ? author.trim() : 'Anonymous',
+      status: status || 'published'
     });
 
-    const populatedPost = await Post.findById(post._id).populate("tags");
+    console.log('Post created:', { id: post._id, tagsCount: post.tags.length, tags: post.tags });
+
+    const populatedPost = await Post.findById(post._id).populate('tags', 'name color');
+    console.log('Populated post tags:', populatedPost.tags.map(t => t.name));
 
     res.status(201).json({
-      message: "Post created successfully",
+      success: true,
+      message: 'Post created successfully',
       data: populatedPost
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
+    console.error('CreatePost error:', error);
+    next(error);
   }
 };
 
 
-// GET /api/posts
-// get all posts with pagination and sorting
- 
-
-exports.getAllPosts = async (req, res) => {
+/**
+ * @route   GET /api/posts
+ * @desc    Get all posts with optional filtering, sorting, and pagination.
+ *          Also supports filtering by tag names via query param.
+ * @access  Public
+ *
+ * @query   {number}  [page=1]          - Page number (1-indexed)
+ * @query   {number}  [limit=6]         - Posts per page
+ * @query   {string}  [sortBy=createdAt] - Field to sort by (createdAt, title, updatedAt)
+ * @query   {string}  [order=desc]      - Sort order: "asc" | "desc"
+ * @query   {string}  [tags]            - Comma-separated tag names to filter by
+ * @query   {string}  [status]          - Filter by status: "draft" | "published"
+ * @query   {string}  [author]          - Filter by author name (case-insensitive)
+ *
+ * @returns {200} { success, total, page, totalPages, data: Post[] }
+ * @returns {500} On server error
+ */
+exports.getAllPosts = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    const sortBy = req.query.sortBy || "createdAt";
-    const order = req.query.order === "asc" ? 1 : -1;
-    const tags = req.query.tags;
-
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 6));
+    const sortBy = ['createdAt', 'updatedAt', 'title'].includes(req.query.sortBy)
+      ? req.query.sortBy
+      : 'createdAt';
+    const order = req.query.order === 'asc' ? 1 : -1;
     const skip = (page - 1) * limit;
 
-    let filter = {};
+    // Build filter query
+    const filter = {};
 
-    if (tags) {
-      const tagArray = tags.split(",");
-      filter.tags = { $in: tagArray };
+    // Filter by status
+    if (req.query.status) {
+      filter.status = req.query.status;
     }
 
-    const posts = await Post.find(filter)
-      .populate("tags")
-      .sort({ [sortBy]: order })
-      .skip(skip)
-      .limit(limit);
+    // Filter by author (case-insensitive partial match)
+    if (req.query.author) {
+      filter.author = { $regex: req.query.author, $options: 'i' };
+    }
 
-    const total = await Post.countDocuments(filter);
+    // Filter by tag names — resolve names to ObjectIds first (case-insensitive)
+    if (req.query.tags && req.query.tags.trim()) {
+      const tagInput = req.query.tags.trim();
+      const tagNames = tagInput.split(',').map(t => t.trim()).filter(Boolean);
 
-    // Generate signed URLs for images
-    for (let post of posts) {
-      if (post.image) {
-        const key = post.image.split(".amazonaws.com/")[1];
-        post.image = await generateSignedUrl(key);
+      if (tagNames.length > 0) {
+        // Use case-insensitive regex so "NodeJS" and "nodejs" both match
+        const caseInsensitivePatterns = tagNames.map(n => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+        const foundTags = await Tag.find({ name: { $in: caseInsensitivePatterns } });
+        const tagIds = foundTags.map(t => t._id);
+
+        if (tagIds.length > 0) {
+          filter.tags = { $in: tagIds };
+        } else {
+          // No matching tags found — return empty result
+          return res.status(200).json({
+            success: true,
+            total: 0,
+            page,
+            totalPages: 0,
+            data: []
+          });
+        }
       }
     }
 
+    const [posts, total] = await Promise.all([
+      Post.find(filter)
+        .populate('tags', 'name color')
+        .sort({ [sortBy]: order })
+        .skip(skip)
+        .limit(limit),
+      Post.countDocuments(filter)
+    ]);
+
+    // Attach signed S3 URLs
+    const enrichedPosts = await enrichWithSignedUrls(posts);
+
     res.status(200).json({
+      success: true,
       total,
       page,
       totalPages: Math.ceil(total / limit),
-      data: posts
+      data: enrichedPosts
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
-// GET /api/posts/search
-// Search posts by keyword in title and description
- 
 
-exports.searchPosts = async (req, res) => {
+/**
+ * @route   GET /api/posts/search
+ * @desc    Search posts by keyword across title and description fields.
+ *          Also supports pagination on search results.
+ * @access  Public
+ *
+ * @query   {string}  keyword   - Search keyword (required)
+ * @query   {number}  [page=1]  - Page number
+ * @query   {number}  [limit=6] - Posts per page
+ *
+ * @returns {200} { success, total, page, totalPages, data: Post[] }
+ * @returns {400} If keyword is missing
+ * @returns {500} On server error
+ */
+exports.searchPosts = async (req, res, next) => {
   try {
     const { keyword } = req.query;
 
-    if (!keyword) {
-      return res.status(400).json({ message: "Keyword is required" });
+    if (!keyword || !keyword.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search keyword is required'
+      });
     }
 
-    const posts = await Post.find({
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 6));
+    const skip = (page - 1) * limit;
+
+    const searchRegex = { $regex: keyword.trim(), $options: 'i' };
+
+    // Find tags matching the keyword
+    const matchingTags = await Tag.find({
+      name: { $regex: keyword.trim(), $options: 'i' }
+    }).select('_id');
+    const tagIds = matchingTags.map(t => t._id);
+
+    const searchFilter = {
       $or: [
-        { title: { $regex: keyword, $options: "i" } },
-        { desc: { $regex: keyword, $options: "i" } }
+        { title: searchRegex },
+        { desc: searchRegex },
+        { author: searchRegex }
       ]
-    }).populate("tags");
+    };
+
+    // Add tag matching to the search filter
+    if (tagIds.length > 0) {
+      searchFilter.$or.push({ tags: { $in: tagIds } });
+    }
+
+    const [posts, total] = await Promise.all([
+      Post.find(searchFilter)
+        .populate('tags', 'name color')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Post.countDocuments(searchFilter)
+    ]);
+
+    const enrichedPosts = await enrichWithSignedUrls(posts);
 
     res.status(200).json({
-      total: posts.length,
-      data: posts
+      success: true,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      data: enrichedPosts
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
 
-
-//   GET /api/posts/:id
-//   Get single post by ID
-
-exports.getPostById = async (req, res) => {
+/**
+ * @route   GET /api/posts/filter-by-tag/:tagName
+ * @desc    Filter all posts that have a specific tag (by tag name).
+ *          Supports pagination and sorting.
+ * @access  Public
+ *
+ * @param   {string}  tagName   - Tag name to filter by (URL param)
+ * @query   {number}  [page=1]  - Page number
+ * @query   {number}  [limit=6] - Posts per page
+ * @query   {string}  [sortBy=createdAt] - Sort field
+ * @query   {string}  [order=desc] - Sort order
+ *
+ * @returns {200} { success, tag, total, page, totalPages, data: Post[] }
+ * @returns {404} If tag not found
+ * @returns {500} On server error
+ */
+exports.filterByTag = async (req, res, next) => {
   try {
-    const post = await Post.findById(req.params.id).populate("tags");
+    const { tagName } = req.params;
 
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
+    const tag = await Tag.findOne({ name: tagName.toLowerCase().trim() });
+
+    if (!tag) {
+      return res.status(404).json({
+        success: false,
+        message: `Tag "${tagName}" not found`
+      });
     }
 
-    res.status(200).json(post);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 6));
+    const sortBy = ['createdAt', 'updatedAt', 'title'].includes(req.query.sortBy)
+      ? req.query.sortBy
+      : 'createdAt';
+    const order = req.query.order === 'asc' ? 1 : -1;
+    const skip = (page - 1) * limit;
+
+    const [posts, total] = await Promise.all([
+      Post.find({ tags: tag._id })
+        .populate('tags', 'name color')
+        .sort({ [sortBy]: order })
+        .skip(skip)
+        .limit(limit),
+      Post.countDocuments({ tags: tag._id })
+    ]);
+
+    const enrichedPosts = await enrichWithSignedUrls(posts);
+
+    res.status(200).json({
+      success: true,
+      tag: { name: tag.name, color: tag.color },
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      data: enrichedPosts
+    });
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
 
-// DELETE /api/posts/:id
-//  Delete post by ID
-
-exports.deletePost = async (req, res) => {
+/**
+ * @route   GET /api/posts/:id
+ * @desc    Get a single post by its MongoDB ObjectId.
+ *          Returns populated tags and a signed S3 image URL.
+ * @access  Public
+ *
+ * @param   {string} id - MongoDB ObjectId of the post
+ *
+ * @returns {200} { success, data: Post }
+ * @returns {404} If post not found
+ * @returns {400} If ID format is invalid
+ * @returns {500} On server error
+ */
+exports.getPostById = async (req, res, next) => {
   try {
-    const post = await Post.findByIdAndDelete(req.params.id);
+    const post = await Post.findById(req.params.id).populate('tags', 'name color');
 
     if (!post) {
-      return res.status(404).json({ message: "Post not found" });
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
     }
 
-    res.status(200).json({ message: "Post deleted successfully" });
+    const [enriched] = await enrichWithSignedUrls([post]);
+
+    res.status(200).json({
+      success: true,
+      data: enriched
+    });
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
 
-
-
-//   PUT /api/posts/:id
-//  Update post by ID
-
-
-exports.updatePost = async (req, res) => {
+/**
+ * @route   PUT /api/posts/:id
+ * @desc    Update an existing post by ID.
+ *          Optionally replace the image with a new S3 upload (and delete old one).
+ *          Tags should be provided as comma-separated tag names.
+ * @access  Public
+ *
+ * @param   {string} id - MongoDB ObjectId of the post
+ * @body    {string}  [title]  - New post title
+ * @body    {string}  [desc]   - New post description
+ * @body    {string}  [author] - New author name
+ * @body    {string}  [status] - New status: "draft" | "published"
+ * @body    {string}  [tags]   - Comma-separated tag names
+ * @file    {File}    [image]  - New image file (replaces existing)
+ *
+ * @returns {200} { success, message, data: Post }
+ * @returns {404} If post not found
+ * @returns {500} On server error
+ */
+exports.updatePost = async (req, res, next) => {
   try {
-    const { title, desc, tags } = req.body;
+    const existingPost = await Post.findById(req.params.id);
 
-    let updateData = {};
+    if (!existingPost) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
 
-    if (title) updateData.title = title;
-    if (desc) updateData.desc = desc;
+    const { title, desc, author, status } = req.body;
+    const tags = req.body.tags;
+    const updateData = {};
 
-    if (tags) {
-      const tagArray = Array.isArray(tags) ? tags : tags.split(",");
-      updateData.tags = tagArray;
+    if (title) updateData.title = title.trim();
+    if (desc) updateData.desc = desc.trim();
+    if (author) updateData.author = author.trim();
+    if (status) updateData.status = status;
+
+    // Handle tag updates — resolve names to ObjectIds (case-insensitive)
+    if (tags !== undefined) {
+      const tagArray = (Array.isArray(tags) ? tags : tags.split(','))
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      if (tagArray.length > 0) {
+        // Use case-insensitive regex so mixed-case tag names are all found
+        const caseInsensitivePatterns = tagArray.map(n => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+        const foundTags = await Tag.find({ name: { $in: caseInsensitivePatterns } });
+        updateData.tags = foundTags.map(t => t._id);
+      } else {
+        updateData.tags = [];
+      }
+    }
+
+    // Handle image replacement
+    if (req.file) {
+      // Delete old image from S3
+      const oldKey = extractS3Key(existingPost.image);
+      if (oldKey) {
+        await deleteFromS3(oldKey).catch(() => { }); // Non-blocking
+      }
+
+      // Upload new image
+      updateData.image = await uploadToS3(req.file);
     }
 
     const updatedPost = await Post.findByIdAndUpdate(
       req.params.id,
       updateData,
-      { new: true }
-    ).populate("tags");
+      { new: true, runValidators: true }
+    ).populate('tags', 'name color');
 
-    if (!updatedPost) {
-      return res.status(404).json({ message: "Post not found" });
-    }
+    const [enriched] = await enrichWithSignedUrls([updatedPost]);
 
     res.status(200).json({
-      message: "Post updated successfully",
-      data: updatedPost
+      success: true,
+      message: 'Post updated successfully',
+      data: enriched
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
+  }
+};
+
+
+/**
+ * @route   DELETE /api/posts/:id
+ * @desc    Delete a post by ID. Also removes the associated image from S3.
+ * @access  Public
+ *
+ * @param   {string} id - MongoDB ObjectId of the post
+ *
+ * @returns {200} { success, message }
+ * @returns {404} If post not found
+ * @returns {500} On server error
+ */
+exports.deletePost = async (req, res, next) => {
+  try {
+    const post = await Post.findByIdAndDelete(req.params.id);
+
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    // Clean up S3 image if it exists
+    const key = extractS3Key(post.image);
+    if (key) {
+      await deleteFromS3(key).catch(() => { }); // Non-blocking
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Post deleted successfully'
+    });
+
+  } catch (error) {
+    next(error);
   }
 };

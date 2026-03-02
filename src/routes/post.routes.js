@@ -1,17 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { createPost, getAllPosts, searchPosts } = require('../controllers/post.controller');
 const upload = require('../middleware/upload.middleware');
-const { getPostById } = require('../controllers/post.controller');
-const { deletePost } = require('../controllers/post.controller');
-const { updatePost } = require('../controllers/post.controller');
 
+const {createPost, getAllPosts,searchPosts, filterByTag,getPostById,updatePost,deletePost} = require('../controllers/post.controller');
 
-router.post('/', upload.single('image'), createPost);
 router.get('/search', searchPosts);
+router.get('/filter-by-tag/:tagName', filterByTag);
 router.get('/', getAllPosts);
+router.post('/', upload.single('image'), createPost);
 router.get('/:id', getPostById);
-router.delete('/:id', deletePost)
-router.put('/:id', updatePost);
+router.put('/:id', upload.single('image'), updatePost);
+router.delete('/:id', deletePost);
 
 module.exports = router;
