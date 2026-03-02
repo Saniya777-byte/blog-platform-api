@@ -1,40 +1,295 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-    <title>Blog Platform</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Blog Platform — Create, manage and explore blog posts with tags, search, filtering, and AWS S3 image uploads." />
+  <title>BlogVault — Blog Platform API</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
-<div class="container">
-
-    <h1 class="main-title">Blog Platform</h1>
-
-    <div class="card">
-        <h2>Search Posts</h2>
-        <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Search by title or description">
-            <button onclick="searchPosts()" class="btn primary">Search</button>
-            <button onclick="loadPosts()" class="btn secondary">Reset</button>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">✦</div>
+        <div>
+          <span class="logo-name">BlogVault</span>
+          <span class="logo-tag">REST API Platform</span>
         </div>
+      </div>
+      <nav class="nav-pills">
+        <button class="nav-pill active" id="nav-posts" onclick="switchTab('posts')">Posts</button>
+        <button class="nav-pill" id="nav-create" onclick="switchTab('create')">Create</button>
+        <button class="nav-pill" id="nav-tags" onclick="switchTab('tags')">Tags</button>
+      </nav>
+      <div class="header-status" id="apiStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Connecting...</span>
+      </div>
     </div>
+  </header>
 
-    <div class="card">
-        <h2>Create Post</h2>
-        <form id="postForm">
-            <input type="text" id="title" placeholder="Title" required />
-            <textarea id="desc" placeholder="Description" required></textarea>
-            <select id="tagSelect"></select>
-            <input type="file" id="image" />
-            <button type="submit" class="btn primary full-width">Create Post</button>
+  <!-- ══════════════════════════════════════════════════════════ MAIN ══════ -->
+  <main class="main">
+
+    <!-- ─────────────────────────────────────── POSTS TAB ─── -->
+    <section class="tab-panel active" id="tab-posts">
+
+      <!-- Hero search bar -->
+      <div class="hero-search">
+        <h1 class="hero-title">Explore Posts</h1>
+        <p class="hero-sub">Search, filter, and discover blog content</p>
+        <div class="search-wrap">
+          <span class="search-icon"></span>
+          <input type="text" id="searchInput" class="search-input" placeholder="Search by title, description or author…"
+            oninput="onSearchInput(this.value)" />
+          <button class="btn btn-ghost" id="clearSearch" onclick="clearSearch()" style="display:none">✕</button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label class="filter-label">Sort by</label>
+          <select id="sortBy" class="filter-select" onchange="loadPosts(1)">
+            <option value="createdAt">Date Created</option>
+            <option value="updatedAt">Last Updated</option>
+            <option value="title">Title (A-Z)</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Order</label>
+          <select id="order" class="filter-select" onchange="loadPosts(1)">
+            <option value="desc">Newest first</option>
+            <option value="asc">Oldest first</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Status</label>
+          <select id="filterStatus" class="filter-select" onchange="loadPosts(1)">
+            <option value="">All</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Tag</label>
+          <select id="filterTag" class="filter-select"
+            onchange="currentTagFilter=''; document.getElementById('activeTagBanner').style.display='none'; loadPosts(1)">
+            <option value="">All Tags</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Per page</label>
+          <select id="limitSelect" class="filter-select" onchange="loadPosts(1)">
+            <option value="6">6</option>
+            <option value="12">12</option>
+            <option value="24">24</option>
+          </select>
+        </div>
+        <button class="btn btn-outline" onclick="resetFilters()">↺ Reset</button>
+      </div>
+
+      <!-- Active tag pills (visible when tag filter active) -->
+      <div id="activeTagBanner" class="active-tag-banner" style="display:none"></div>
+
+      <!-- Stats row -->
+      <div class="stats-row" id="statsRow">
+        <span class="stat-chip" id="statsText">Loading…</span>
+      </div>
+
+      <!-- Posts grid -->
+      <div id="postsGrid" class="posts-grid"></div>
+
+      <!-- Skeleton loader -->
+      <div id="skeleton" class="posts-grid" style="display:none">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+
+      <!-- Empty state -->
+      <div id="emptyState" class="empty-state" style="display:none">
+        <div class="empty-icon"></div>
+        <h3>No posts found</h3>
+        <p>Try adjusting your search or filters, or create a new post.</p>
+        <button class="btn btn-primary" onclick="switchTab('create')">Create First Post</button>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination" id="pagination"></div>
+
+    </section>
+
+    <!-- ─────────────────────────────────────── CREATE TAB ─── -->
+    <section class="tab-panel" id="tab-create">
+      <div class="form-page">
+        <div class="form-header">
+          <h2 class="form-title">Create New Post</h2>
+          <p class="form-sub">Fill in the details below to publish your blog post</p>
+        </div>
+
+        <form id="postForm" class="post-form" onsubmit="submitPost(event)">
+
+          <div class="form-grid">
+            <div class="form-col">
+              <div class="form-group">
+                <label class="form-label" for="inputTitle">Title <span class="required">*</span></label>
+                <input type="text" id="inputTitle" class="form-input" placeholder="Enter a compelling title…" required
+                  maxlength="200" />
+                <span class="char-count" id="titleCount">0 / 200</span>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="inputDesc">Description <span class="required">*</span></label>
+                <textarea id="inputDesc" class="form-input form-textarea" placeholder="Write your post content here…"
+                  required></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label class="form-label" for="inputAuthor">Author</label>
+                  <input type="text" id="inputAuthor" class="form-input" placeholder="Anonymous" />
+                </div>
+                <div class="form-group flex-1">
+                  <label class="form-label" for="inputStatus">Status</label>
+                  <select id="inputStatus" class="form-input form-select">
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Tags</label>
+                <div id="tagCheckboxes" class="tag-checkbox-grid"></div>
+                <p class="form-hint">Select one or more tags for this post</p>
+              </div>
+            </div>
+
+            <div class="form-col">
+              <div class="form-group">
+                <label class="form-label">Cover Image</label>
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('inputImage').click()">
+                  <div class="drop-zone-inner" id="dropZoneInner">
+                    <div class="drop-icon"></div>
+                    <p class="drop-title">Click or drag & drop</p>
+                    <p class="drop-sub">JPG, PNG, WebP, GIF · Max 5 MB</p>
+                  </div>
+                  <img id="imagePreview" class="image-preview" style="display:none" alt="Preview" />
+                  <input type="file" id="inputImage" accept="image/*" style="display:none"
+                    onchange="previewImage(this)" />
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm mt-8" id="clearImageBtn" style="display:none"
+                  onclick="clearImage()">Remove image</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-outline" onclick="resetForm()">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+              <span class="btn-spinner" id="submitSpinner" style="display:none"></span>
+              Publish Post
+            </button>
+          </div>
         </form>
+
+        <!-- Toast notification -->
+        <div class="toast" id="toast"></div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── TAGS TAB ─── -->
+    <section class="tab-panel" id="tab-tags">
+      <div class="tags-page">
+        <div class="form-header">
+          <h2 class="form-title">Tag Management</h2>
+          <p class="form-sub">Create and manage tags to categorize your blog posts</p>
+        </div>
+
+        <div class="tags-layout">
+          <!-- Create tag form -->
+          <div class="tag-create-card">
+            <h3 class="card-title">Create New Tag</h3>
+            <form id="tagForm" onsubmit="submitTag(event)">
+              <div class="form-group">
+                <label class="form-label" for="tagName">Tag Name <span class="required">*</span></label>
+                <input type="text" id="tagName" class="form-input" placeholder="e.g. nodejs, react, api…" required
+                  maxlength="50" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="tagColor">Tag Color</label>
+                <div class="color-picker-row">
+                  <input type="color" id="tagColor" class="color-picker" value="#6366f1" />
+                  <div class="color-presets">
+                    <button type="button" class="color-preset" style="background:#6366f1"
+                      onclick="setColor('#6366f1')"></button>
+                    <button type="button" class="color-preset" style="background:#10b981"
+                      onclick="setColor('#10b981')"></button>
+                    <button type="button" class="color-preset" style="background:#f59e0b"
+                      onclick="setColor('#f59e0b')"></button>
+                    <button type="button" class="color-preset" style="background:#ef4444"
+                      onclick="setColor('#ef4444')"></button>
+                    <button type="button" class="color-preset" style="background:#8b5cf6"
+                      onclick="setColor('#8b5cf6')"></button>
+                    <button type="button" class="color-preset" style="background:#06b6d4"
+                      onclick="setColor('#06b6d4')"></button>
+                    <button type="button" class="color-preset" style="background:#f97316"
+                      onclick="setColor('#f97316')"></button>
+                    <button type="button" class="color-preset" style="background:#ec4899"
+                      onclick="setColor('#ec4899')"></button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Preview</label>
+                <div class="tag-preview-wrap">
+                  <span class="tag-badge" id="tagPreview"
+                    style="background:rgba(99,102,241,0.15); color:#6366f1; border-color:rgba(99,102,241,0.3)">nodejs</span>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary full-width" id="createTagBtn">Create Tag</button>
+            </form>
+          </div>
+
+          <!-- Tags list -->
+          <div class="tag-list-card">
+            <div class="card-header-row">
+              <h3 class="card-title">All Tags</h3>
+              <span class="badge" id="tagCountBadge">0</span>
+            </div>
+            <div id="tagsListContainer" class="tags-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════ POST DETAIL MODAL ══════════════ -->
+  <div class="modal-overlay" id="postModal" style="display:none" onclick="closeModal(event)">
+    <div class="modal-box" id="modalBox">
+      <button class="modal-close" onclick="closeModalBtn()">✕</button>
+      <div id="modalContent"></div>
     </div>
+  </div>
 
-    <h2 class="section-title">All Posts</h2>
-    <div id="posts" class="posts-grid"></div>
+  <!-- ══════════════════════════════════ GLOBAL TOAST ══════════════════ -->
+  <div class="global-toast" id="globalToast"></div>
 
-</div>
-
-<script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
+
 </html>
