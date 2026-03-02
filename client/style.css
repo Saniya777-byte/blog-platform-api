@@ -1,35 +1,152 @@
 body {
-    font-family: Arial;
-    padding: 40px;
+    margin: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+    color: #333;
 }
 
-input {
-    display: block;
-    margin-bottom: 10px;
-    padding: 8px;
-    width: 300px;
+.container {
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 0 20px;
 }
 
-button {
-    padding: 8px 12px;
+.main-title {
+    text-align: center;
+    margin-bottom: 40px;
+    font-size: 36px;
+    font-weight: 600;
+}
+
+.section-title {
+    margin-top: 40px;
+}
+
+.card {
+    background: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 30px;
+}
+
+input,
+textarea,
+select {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    font-size: 14px;
+}
+
+textarea {
+    resize: none;
+    height: 80px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: #4f46e5;
+}
+
+.search-box {
+    display: flex;
+    gap: 10px;
+}
+
+.btn {
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: none;
     cursor: pointer;
+    font-size: 14px;
+    transition: 0.3s ease;
 }
+
+.primary {
+    background: #4f46e5;
+    color: white;
+}
+
+.primary:hover {
+    background: #4338ca;
+}
+
+.secondary {
+    background: #e5e7eb;
+}
+
+.secondary:hover {
+    background: #d1d5db;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.posts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 25px;
+}
+
+
 
 .post {
-    border: 1px solid #ccc;
-    padding: 15px;
-    margin-bottom: 15px;
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: 0.3s ease;
 }
 
-img {
-    max-width: 200px;
-    display: block;
-    margin-top: 10px;
+
+.post:hover {
+    transform: translateY(-5px);
 }
 
-select {
-    display: block;
+.post h3 {
+    margin-top: 0;
     margin-bottom: 10px;
-    padding: 8px;
-    width: 316px;
+}
+
+.post img {
+    width: 100%;
+    height: 200px;            
+    object-fit: cover;        
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+
+.post p {
+    margin: 8px 0;
+}
+
+.post button {
+    margin-top: 15px;
+    align-self: flex-start;
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.post button:hover {
+    background: #dc2626;
+}
+.post .tags {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #555;
 }
