@@ -1,9 +1,7 @@
 const multer = require('multer');
 
-// Allowed MIME types for image uploads
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
-// max file size:5mb
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 

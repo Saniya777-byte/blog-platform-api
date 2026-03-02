@@ -37,11 +37,7 @@ async function uploadToS3(file) {
   return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 }
 
-/**
- * Deletes an object from S3 by its key.
- *
- * @param {string} key - S3 object key
- */
+
 async function deleteFromS3(key) {
   if (!key) return;
   const command = new DeleteObjectCommand({
@@ -61,7 +57,6 @@ async function enrichWithSignedUrls(posts) {
           try {
             postObj.image = await generateSignedUrl(key);
           } catch {
-            // If signed URL fails, keep original URL
           }
         }
       }
@@ -105,7 +100,6 @@ exports.createPost = async (req, res, next) => {
       console.log('Tag array to search:', tagArray);
 
       if (tagArray.length > 0) {
-        // Case-insensitive lookup so "NodeJS", "nodejs" and "NODEJS" all match
         const caseInsensitivePatterns = tagArray.map(n => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
         const existingTags = await Tag.find({ name: { $in: caseInsensitivePatterns } });
         console.log('Found tags in DB:', existingTags.length, existingTags.map(t => t.name));
@@ -169,12 +163,11 @@ exports.getAllPosts = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    // Filter by author (case-insensitive partial match)
     if (req.query.author) {
       filter.author = { $regex: req.query.author, $options: 'i' };
     }
 
-    // Filter by tag names — resolve names to ObjectIds first (case-insensitive)
+
     if (req.query.tags && req.query.tags.trim()) {
       const tagInput = req.query.tags.trim();
       const tagNames = tagInput.split(',').map(t => t.trim()).filter(Boolean);
@@ -361,25 +354,6 @@ exports.getPostById = async (req, res, next) => {
 };
 
 
-/**
- * @route   PUT /api/posts/:id
- * @desc    Update an existing post by ID.
- *          Optionally replace the image with a new S3 upload (and delete old one).
- *          Tags should be provided as comma-separated tag names.
- * @access  Public
- *
- * @param   {string} id - MongoDB ObjectId of the post
- * @body    {string}  [title]  - New post title
- * @body    {string}  [desc]   - New post description
- * @body    {string}  [author] - New author name
- * @body    {string}  [status] - New status: "draft" | "published"
- * @body    {string}  [tags]   - Comma-separated tag names
- * @file    {File}    [image]  - New image file (replaces existing)
- *
- * @returns {200} { success, message, data: Post }
- * @returns {404} If post not found
- * @returns {500} On server error
- */
 exports.updatePost = async (req, res, next) => {
   try {
     const existingPost = await Post.findById(req.params.id);
@@ -400,7 +374,6 @@ exports.updatePost = async (req, res, next) => {
     if (author) updateData.author = author.trim();
     if (status) updateData.status = status;
 
-    // Handle tag updates — resolve names to ObjectIds (case-insensitive)
     if (tags !== undefined) {
       const tagArray = (Array.isArray(tags) ? tags : tags.split(','))
         .map(t => t.trim())
@@ -416,7 +389,6 @@ exports.updatePost = async (req, res, next) => {
       }
     }
 
-    // Handle image replacement
     if (req.file) {
       // Delete old image from S3
       const oldKey = extractS3Key(existingPost.image);
